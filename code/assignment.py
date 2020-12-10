@@ -21,12 +21,26 @@ class Model(tf.keras.Model):
         self.batch_size = 20
         self.num_classes = 2
 
-        # TODO: Initialize all hyperparameters
+        # Initialize all hyperparameters
         self.learning_rate = 0.0005
         self.num_epochs = 3
+
+        # Hyperparameters dealing with how data is read from memory
+
+        # Indicates whether to read segments of the entire dataset
+        self.using_all_data = True
+        # Stop after segment. Assign -1 to allow all data segments to be read
+        self.stop_at_segment = 3
+        # Number of epochs for a specific data segment
+        self.num_epochs_all_data = 1
+
+        # If using_all_data is False, one segment will be read for train and test
+        # These hyperparameters control their segment size in this case
+        self.partial_data_train_segment = 320
+        self.partial_data_test_segment = 120
         
 
-        # TODO: Initialize all trainable parameters
+        # Initialize all trainable parameters
         self.filter1 = tf.Variable(tf.random.truncated_normal([10,10,4,200], stddev=.1))
         self.filter2 = tf.Variable(tf.random.truncated_normal([10,10,200,100], stddev=.1))
         self.filter3 = tf.Variable(tf.random.truncated_normal([10,10,100,100], stddev=.1))
@@ -179,29 +193,64 @@ def main():
     
     :return: None
     '''
-    (inp_train, lab_train) = get_data("../data/train")
-    (inp_val, lab_val) = get_data("../data/val", mode="validation")
-    (inp_test, lab_test) = get_data("../data/test", mode="test")
     model = Model()
+
+    if model.using_all_data:
+        model.num_epochs = model.num_epochs_all_data
 
     last = 0.0
     curr = 0.0
-    for epoch in range(model.num_epochs):
-        print("\nEPOCH: {}\n".format(epoch + 1))
-        train(model, inp_train, lab_train)
-        if epoch < model.num_epochs - 1:
-            print("\nVALIDATION TEST\n")
-            curr = test(model, inp_val, lab_val, setType="validation")
-            if curr < last:
-                print("\nEARLY STOP\n")
-                break
-            else:
-                last = curr
+    pn = 0
+    pp = 0
+    mem_seg = 0
+    end = False
+    while not end:
+        mem_seg += 1
+        (inp_train, lab_train, pn, pp, end) = None, None, pn, pp, None
+        if model.using_all_data:
+            (inp_train, lab_train, pn, pp, end) = get_data("../data/train", positionN=pn, positionP=pp)
+        else:
+            (inp_train, lab_train, pn, pp, end) = get_data("../data/train", 
+                                                           segment=model.partial_data_train_segment, positionN=pn, positionP=pp)
+        for epoch in range(model.num_epochs):
+            print("\nTRAIN DATA SEGMENT: {} | EPOCH: {}\n".format(mem_seg, epoch + 1))
+            train(model, inp_train, lab_train)
+            if epoch < model.num_epochs - 1:
+                print("\nVALIDATION TEST\n")
+                (inp_val, lab_val, _a, _b, _c) = get_data("../data/val", segment=16)
+                curr = test(model, inp_val, lab_val, setType="validation")
+                if curr < last:
+                    print("\nEARLY STOP\n")
+                    break
+                else:
+                    last = curr
+        if not model.using_all_data or (not model.stop_at_segment == -1 and mem_seg == model.stop_at_segment):
+            end = True
+
+    inp_train = None
+    lab_train = None
 
     print("\nTEST SET\n")
-    test_accuracy = test(model, inp_test, lab_test, setType="test")
-    print("\nFINAL TEST ACCURACY: {}\n".format(test_accuracy))
-    return
+    pn = 0
+    pp = 0
+    mem_seg = 0
+    end = False
+    test_accuracies = []
+    while not end:
+        mem_seg += 1
+        (inp_test, lab_test, pn, pp, end) = None, None, pn, pp, None
+        if model.using_all_data:
+            (inp_test, lab_test, pn, pp, end) = get_data("../data/test", positionN=pn, positionP=pp)
+        else:
+            (inp_test, lab_test, pn, pp, end) = get_data("../data/test", 
+                                                         segment=model.partial_data_test_segment, positionN=pn, positionP=pp)
+        print("\nTEST DATA SEGMENT: {}\n".format(mem_seg))
+        test_accuracies.append(test(model, inp_test, lab_test, setType="test"))
+        if not model.using_all_data or (not model.stop_at_segment == -1 and mem_seg == model.stop_at_segment):
+            end = True
+
+    print("\nFINAL TEST ACCURACY: {}\n".format(tf.reduce_mean(tf.convert_to_tensor(test_accuracies))))
+
 
 if __name__ == '__main__':
     main()

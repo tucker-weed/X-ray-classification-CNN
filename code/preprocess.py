@@ -7,7 +7,7 @@ import random
 import datetime
 
 
-def get_data(prefix, mode="train"):
+def get_data(prefix, segment=240, positionN=0, positionP=0):
 	"""
 	Given a file path and two target classes, returns an array of 
 	normalized inputs (images) and an array of labels. 
@@ -30,35 +30,47 @@ def get_data(prefix, mode="train"):
 	"""
 
 	random.seed(datetime.time())
-	train_stop = 0
-	test_stop = 0
-	val_stop = 0
-	if mode == "train":
-		NUM_INPUTS = 300
-		train_stop = NUM_INPUTS // 2
-	elif mode == "test":
-		NUM_INPUTS = 140
-		test_stop = NUM_INPUTS // 2
-	elif mode == "validation":
-		NUM_INPUTS = 80
-		val_stop = NUM_INPUTS // 2
+	stop = 0
+	end = False
+	directoryLisN = os.listdir(prefix + "/NORMAL")[positionN : ]
+	directoryLisP = os.listdir(prefix + "/PNEUMONIA")[positionP : ]
+	NUM_INPUTS = min(segment, len(directoryLisN) + len(directoryLisP))
+
+	if (len(directoryLisN) + len(directoryLisP) - segment) <= 0:
+		end = True
+	stop = NUM_INPUTS // 4
+	stopN = stop
+	stopP = stop * 3
+	if (len(directoryLisN) < stopN):
+		stopP += stopN - len(directoryLisN)
+		stopN = len(directoryLisN)
+	elif (len(directoryLisP) < stopP):
+		stopN += stopP - len(directoryLisP)
+		stopP = len(directoryLisP)
+
+
 	images = np.zeros((NUM_INPUTS, 1200, 1200, 4))
 	labels = np.zeros((NUM_INPUTS, 2))
 	idx = 0
 	missed_idxs = []
 
 	i = 0
-	# NORMAL subset
-	for filename in os.listdir(prefix + "/NORMAL"):
+	# PNEUMONIA subset
+	for filename in directoryLisP:
 		i += 1
-		if (i == val_stop and mode == "validation") or (i == test_stop and mode == "test") or i == train_stop:
+		positionP += 1
+		if (i == stopP or idx >= NUM_INPUTS):
 			break
 		if filename.endswith(".jpeg"): 
-			image = Image.open(prefix + "/NORMAL/" + filename)
+			image = Image.open(prefix + "/PNEUMONIA/" + filename)
 			image = image.resize((2400, 2400))
-			image = np.array(image).astype('float32')  / 255.0
+			image = np.array(image).astype('float32') / 255.0
 			image = np.reshape(image, (-1, 4, 1200, 1200))
 			image = np.transpose(image, axes=[0,2,3,1])
+			# For some reason a single image ends up size 3 on axis=0
+			# The check below essentially turns it back to size 1 on axis=0
+			if np.shape(image)[0]  == 3:
+				image = image[0]
 			labels[idx] = np.array([0, 1]).astype('float32')
 			images[idx] = image
 		if random.randint(0, 1) == 1:
@@ -67,31 +79,28 @@ def get_data(prefix, mode="train"):
 		else:
 			idx += 1
 
+	directoryLisP = None
 	i = 0
-	# PNEUMONIA subset
-	for filename in os.listdir(prefix + "/PNEUMONIA"):
+	# NORMAL subset
+	for filename in directoryLisN:
 		i += 1
-		if (i == val_stop and mode == "validation") or (i == test_stop and mode == "test") or i == train_stop:
+		positionN += 1
+		if (i == stopN):
 			break
 		if filename.endswith(".jpeg"): 
-			image = Image.open(prefix + "/PNEUMONIA/" + filename)
+			image = Image.open(prefix + "/NORMAL/" + filename)
 			image = image.resize((2400, 2400))
-			image = np.array(image).astype('float32') / 255.0
+			image = np.array(image).astype('float32')  / 255.0
 			image = np.reshape(image, (-1, 4, 1200, 1200))
 			image = np.transpose(image, axes=[0,2,3,1])
-
-			# For some reason a single image ends up size 3 on axis=0
-			# The check below essentially turns it back to size 1 on axis=0
-			if np.shape(image)[0]  == 3:
-				image = image[0]
 			if len(missed_idxs) > 0:
-				newIdx = missed_idxs.pop(0)
-				labels[newIdx] = np.array([1, 0]).astype('float32')
-				images[newIdx] = image
+					newIdx = missed_idxs.pop(0)
+					labels[newIdx] = np.array([1, 0]).astype('float32')
+					images[newIdx] = image
 			else:
 				labels[idx] = np.array([1, 0]).astype('float32')
 				images[idx] = image
 				idx += 1
 
-	return images, labels
+	return images, labels, positionN, positionP, end
 
