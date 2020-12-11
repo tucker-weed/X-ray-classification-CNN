@@ -11,10 +11,7 @@ import math
 class Model(tf.keras.Model):
     def __init__(self):
         """
-        This model class will contain the architecture for your CNN that 
-        classifies images. Do not modify the constructor, as doing so 
-        will break the autograder. We have left in variables in the constructor
-        for you to fill out, but you are welcome to change them if you'd like.
+        Architechture for CNN
         """
         super(Model, self).__init__()
 
@@ -22,7 +19,7 @@ class Model(tf.keras.Model):
         self.num_classes = 2
 
         # Initialize all hyperparameters
-        self.learning_rate = 0.0005
+        self.learning_rate = 0.0001
         self.num_epochs = 3
 
         # Hyperparameters dealing with how data is read from memory
@@ -31,8 +28,6 @@ class Model(tf.keras.Model):
         self.using_all_data = True
         # Stop after segment. Assign -1 to allow all data segments to be read
         self.stop_at_segment = 3
-        # Number of epochs for a specific data segment
-        self.num_epochs_all_data = 1
 
         # If using_all_data is False, one segment will be read for train and test
         # These hyperparameters control their segment size in this case
@@ -44,9 +39,10 @@ class Model(tf.keras.Model):
         self.filter1 = tf.Variable(tf.random.truncated_normal([10,10,4,200], stddev=.1))
         self.filter2 = tf.Variable(tf.random.truncated_normal([10,10,200,100], stddev=.1))
         self.filter3 = tf.Variable(tf.random.truncated_normal([10,10,100,100], stddev=.1))
+        self.filter4 = tf.Variable(tf.random.truncated_normal([10,10,100,50], stddev=.1))
 
-        self.D1 = tf.keras.layers.Dense(self.batch_size)
-        self.D2 = tf.keras.layers.Dense(self.batch_size)
+        self.D1 = tf.keras.layers.Dense(self.batch_size, activation="relu")
+        self.D2 = tf.keras.layers.Dense(self.batch_size, activation="relu")
         self.D3 = tf.keras.layers.Dense(self.num_classes)
 
         self.optimizer = tf.keras.optimizers.Adam(learning_rate=self.learning_rate)
@@ -76,6 +72,11 @@ class Model(tf.keras.Model):
         tf.nn.batch_normalization(layer3Output, mean5, variance5, variance_epsilon=0.00000001, offset=None, scale=None)
         layer3Output = tf.nn.relu(layer3Output)
 
+        layer3Output = tf.nn.conv2d(layer3Output, self.filter4, strides=3, padding='SAME')
+        (mean5, variance5) = tf.nn.moments(layer3Output, [0,1,2])
+        tf.nn.batch_normalization(layer3Output, mean5, variance5, variance_epsilon=0.00000001, offset=None, scale=None)
+        layer3Output = tf.nn.relu(layer3Output)
+
         layer3Output = tf.reshape(layer3Output, [len(inputs), -1])
         layer3Output = self.D1(layer3Output)
         if not is_testing:
@@ -101,12 +102,10 @@ class Model(tf.keras.Model):
     def accuracy(self, logits, labels):
         """
         Calculates the model's prediction accuracy by comparing
-        logits to correct labels – no need to modify this.
+        logits to correct labels
         :param logits: a matrix of size (num_inputs, self.num_classes); during training, this will be (batch_size, self.num_classes)
         containing the result of multiple convolution and feed forward layers
         :param labels: matrix of size (num_labels, self.num_classes) containing the answers, during training, this will be (batch_size, self.num_classes)
-
-        NOTE: DO NOT EDIT
         
         :return: the accuracy of the model as a Tensor
         """
@@ -115,16 +114,13 @@ class Model(tf.keras.Model):
 
 def train(model, train_inputs, train_labels):
     '''
-    Trains the model on all of the inputs and labels for one epoch. You should shuffle your inputs 
-    and labels - ensure that they are shuffled in the same order using tf.gather.
-    To increase accuracy, you may want to use tf.image.random_flip_left_right on your
-    inputs before doing the forward pass. You should batch your inputs.
+    Trains the model on all of the inputs and labels for one epoch.
     :param model: the initialized model to use for the forward pass and backward pass
     :param train_inputs: train inputs (all inputs to use for training), 
     shape (num_inputs, width, height, num_channels)
     :param train_labels: train labels (all labels to use for training), 
     shape (num_labels, num_classes)
-    :return: Optionally list of losses per batch to use for visualize_loss
+    :return: None
     '''
     BATCH_SZ = model.batch_size
 
@@ -150,14 +146,13 @@ def train(model, train_inputs, train_labels):
 
 def test(model, test_inputs, test_labels, setType):
     """
-    Tests the model on the test inputs and labels. You should NOT randomly 
-    flip images or do any extra preprocessing.
+    Tests the model on the test inputs and labels.
     :param test_inputs: test data (all images to be tested), 
     shape (num_inputs, width, height, num_channels)
     :param test_labels: test labels (all corresponding labels),
     shape (num_labels, num_classes)
-    :return: test accuracy - this should be the average accuracy across
-    all batches
+    :param setType: validation or test string
+    :return: test accuracy
     """
     BATCH_SZ = model.batch_size
     accs = []
@@ -181,41 +176,32 @@ def test(model, test_inputs, test_labels, setType):
 
 def main():
     '''
-    Read in CIFAR10 data (limited to 2 classes), initialize your model, and train and 
-    test your model for a number of epochs. We recommend that you train for
-    10 epochs and at most 25 epochs. 
-    
-    CS1470 students should receive a final accuracy 
-    on the testing examples for cat and dog of >=70%.
-    
-    CS2470 students should receive a final accuracy 
-    on the testing examples for cat and dog of >=75%.
+    Executes training and testing steps
     
     :return: None
     '''
     model = Model()
 
-    if model.using_all_data:
-        model.num_epochs = model.num_epochs_all_data
-
-    last = 0.0
-    curr = 0.0
     pn = 0
     pp = 0
-    mem_seg = 0
-    end = False
-    while not end:
-        mem_seg += 1
-        (inp_train, lab_train, pn, pp, end) = None, None, pn, pp, None
-        if model.using_all_data:
-            (inp_train, lab_train, pn, pp, end) = get_data("../data/train", positionN=pn, positionP=pp)
-        else:
-            (inp_train, lab_train, pn, pp, end) = get_data("../data/train", 
-                                                           segment=model.partial_data_train_segment, positionN=pn, positionP=pp)
-        for epoch in range(model.num_epochs):
+    for epoch in range(model.num_epochs):
+        last = 0.0
+        curr = 0.0
+        mem_seg = 0
+        end = False
+        while not end:
+            mem_seg += 1
+            (inp_train, lab_train, pn, pp, end) = None, None, pn, pp, None
+            if not model.using_all_data:
+                (inp_train, lab_train, pn, pp, end) = get_data("../data/train", positionN=pn, positionP=pp)
+            else:
+                (inp_train, lab_train, pn, pp, end) = get_data("../data/train", 
+                                                            segment=model.partial_data_train_segment, positionN=pn, positionP=pp)
             print("\nTRAIN DATA SEGMENT: {} | EPOCH: {}\n".format(mem_seg, epoch + 1))
             train(model, inp_train, lab_train)
-            if epoch < model.num_epochs - 1:
+            if not model.using_all_data or (not model.stop_at_segment == -1 and mem_seg == model.stop_at_segment):
+                end = True
+        if epoch < model.num_epochs - 1:
                 print("\nVALIDATION TEST\n")
                 (inp_val, lab_val, _a, _b, _c) = get_data("../data/val", segment=16)
                 curr = test(model, inp_val, lab_val, setType="validation")
@@ -224,8 +210,6 @@ def main():
                     break
                 else:
                     last = curr
-        if not model.using_all_data or (not model.stop_at_segment == -1 and mem_seg == model.stop_at_segment):
-            end = True
 
     inp_train = None
     lab_train = None
@@ -236,6 +220,8 @@ def main():
     mem_seg = 0
     end = False
     test_accuracies = []
+    if model.stop_at_segment > 1:
+        model.stop_at_segment -= 1
     while not end:
         mem_seg += 1
         (inp_test, lab_test, pn, pp, end) = None, None, pn, pp, None
