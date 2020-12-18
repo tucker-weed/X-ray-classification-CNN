@@ -6,6 +6,55 @@ from PIL import Image
 import random
 import datetime
 
+def extract(images, labels, dirlist, namelist, prefix, dim1, dim2, stop):
+	"""
+	Populates the images and labels numpy arrays
+	:param images: images numpy array
+	:param labels: labels numpy array
+	:param dirlist: a list containing lists of directory contents
+	:param namelist: a list containing directory names
+	:param prefix: prefix filepath
+	:param dim1: the x dimension of the image to be created
+	:param dim2: the y dimension of the image to be created
+	:param stop: an integer indicating the position in a given dirlist to stop
+	:return: the saved index positions of the next unread image in the directories
+	"""
+	idx = 0
+	pos = 0
+	pn = 0
+	pp = 0
+	while len(dirlist) > 0:
+		i = 0
+		for filename in dirlist[0]:
+			i += 1
+			if namelist[0] == "PNEUMONIA":
+				pp += 1
+			else:
+				pn += 1
+			if i == stop:
+				break
+			if filename.endswith(".jpeg"): 
+				image = Image.open(prefix + "/" + namelist[0] + "/" + filename)
+				image = image.resize((dim1, dim2))
+				image = np.array(image).astype('float32') / 255.0
+				image = np.reshape(image, (-1, 1, dim1, dim2))
+				image = np.transpose(image, axes=[0,2,3,1])
+				# For some reason a single image ends up size 3 on axis=0
+				# The check below essentially turns it back to size 1 on axis=0
+				if np.shape(image)[0]  == 3:
+					image = image[0]
+				label = np.array([0, 0]).astype('float32')
+				label[pos] = 1.0
+				labels[idx] = label
+				images[idx] = image
+			else:
+				idx -= 1
+			idx += 1
+		pos += 1
+		dirlist.pop(0)
+		namelist.pop(0)
+	return pn, pp, idx
+
 
 def get_data(prefix, segment=240, positionN=0, positionP=0):
 	"""
@@ -22,77 +71,35 @@ def get_data(prefix, segment=240, positionN=0, positionP=0):
 	"""
 
 	random.seed(datetime.time())
+
 	stop = 0
 	end = False
 	directoryLisN = os.listdir(prefix + "/NORMAL")[positionN : ]
 	directoryLisP = os.listdir(prefix + "/PNEUMONIA")[positionP : ]
+
+	if (len(directoryLisN) + len(directoryLisP) - segment) <= 0 or (
+		prefix[-5 : ] == "train" and (
+		len(directoryLisN) < segment // 2 or len(directoryLisP) < segment // 2)):
+		end = True 
+	
 	NUM_INPUTS = min(segment, len(directoryLisN) + len(directoryLisP))
-
-	if (len(directoryLisN) + len(directoryLisP) - segment) <= 0:
-		end = True
-	stop = NUM_INPUTS // 4
-	stopN = stop
-	stopP = stop * 3
-	if (len(directoryLisN) < stopN):
-		stopP += stopN - len(directoryLisN)
-		stopN = len(directoryLisN)
-	elif (len(directoryLisP) < stopP):
-		stopN += stopP - len(directoryLisP)
-		stopP = len(directoryLisP)
+	stop = NUM_INPUTS // 2
 
 
-	images = np.zeros((NUM_INPUTS, 1200, 1200, 4))
+	images = np.zeros((NUM_INPUTS, 150, 150, 1))
 	labels = np.zeros((NUM_INPUTS, 2))
-	idx = 0
-	missed_idxs = []
+	dirlist = [directoryLisP, directoryLisN]
+	namelist = ["PNEUMONIA", "NORMAL"]
 
-	i = 0
-	# PNEUMONIA subset
-	for filename in directoryLisP:
-		i += 1
-		positionP += 1
-		if (i == stopP or idx >= NUM_INPUTS):
-			break
-		if filename.endswith(".jpeg"): 
-			image = Image.open(prefix + "/PNEUMONIA/" + filename)
-			image = image.resize((2400, 2400))
-			image = np.array(image).astype('float32') / 255.0
-			image = np.reshape(image, (-1, 4, 1200, 1200))
-			image = np.transpose(image, axes=[0,2,3,1])
-			# For some reason a single image ends up size 3 on axis=0
-			# The check below essentially turns it back to size 1 on axis=0
-			if np.shape(image)[0]  == 3:
-				image = image[0]
-			labels[idx] = np.array([0, 1]).astype('float32')
-			images[idx] = image
-		if random.randint(0, 1) == 1:
-			missed_idxs.append(idx + 1)
-			idx += 2
-		else:
-			idx += 1
-
-	directoryLisP = None
-	i = 0
-	# NORMAL subset
-	for filename in directoryLisN:
-		i += 1
-		positionN += 1
-		if (i == stopN):
-			break
-		if filename.endswith(".jpeg"): 
-			image = Image.open(prefix + "/NORMAL/" + filename)
-			image = image.resize((2400, 2400))
-			image = np.array(image).astype('float32')  / 255.0
-			image = np.reshape(image, (-1, 4, 1200, 1200))
-			image = np.transpose(image, axes=[0,2,3,1])
-			if len(missed_idxs) > 0:
-					newIdx = missed_idxs.pop(0)
-					labels[newIdx] = np.array([1, 0]).astype('float32')
-					images[newIdx] = image
-			else:
-				labels[idx] = np.array([1, 0]).astype('float32')
-				images[idx] = image
-				idx += 1
+	pn, pp, idx = extract(images, labels, dirlist, namelist, prefix, 150, 150, stop)
+	if idx == 0:
+		images = np.array([])
+		labels = np.array([])
+	elif idx < np.shape(images)[0] - 1:
+		images = images[0 : idx]
+		labels = labels[0 : idx]
+	positionN += pn
+	positionP += pp
 
 	return images, labels, positionN, positionP, end
 
